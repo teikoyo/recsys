@@ -1,0 +1,6 @@
+Method,nDCG@10_mean,Latency_ms,Note
+BM25/PPMI + Late,0.32832551763913526,12.0,baseline
+WS-SGNS + SNF,0.3901725032246028,20.0,stronger
+WS-SGNS + RA-SNF,0.43675977024433915,27.0,ours-best
+WS-SGNS + RA-SNF + 谱嵌入ANN,0.42863352499914165,8.0,embed-accel
+蒸馏编码器 + ANN,0.42276723411764383,5.5,distill-accel
