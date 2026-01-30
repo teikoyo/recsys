@@ -1,0 +1,19 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(tree:*)",
+      "Bash(python3:*)",
+      "Bash(python add_remaining_cells.py:*)",
+      "Bash(python:*)",
+      "Bash(cat:*)",
+      "Bash(pip install:*)",
+      "Bash(fc-list:*)",
+      "Bash(find:*)",
+      "Bash(wc:*)",
+      "Bash(grep:*)",
+      "Bash(ls:*)"
+    ],
+    "deny": [],
+    "ask": []
+  }
+}

@@ -1,2 +1,4 @@
-/data/
-./.vscode/
+data/*.csv
+data/raw_data/*.csv
+/tmp
+/.vscode
