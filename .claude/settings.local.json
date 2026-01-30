@@ -8,7 +8,10 @@
       "Bash(cat:*)",
       "Bash(pip install:*)",
       "Bash(fc-list:*)",
-      "Bash(find:*)"
+      "Bash(find:*)",
+      "Bash(wc:*)",
+      "Bash(grep:*)",
+      "Bash(ls:*)"
     ],
     "deny": [],
     "ask": []
