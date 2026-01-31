@@ -11,7 +11,13 @@
       "Bash(find:*)",
       "Bash(wc:*)",
       "Bash(grep:*)",
-      "Bash(ls:*)"
+      "Bash(ls:*)",
+      "Bash(test:*)",
+      "Bash(file:*)",
+      "Bash(xxd:*)",
+      "Bash(xargs -I {} sh -c 'echo \"\"=== {} ===\"\" && head -1 {}')",
+      "Bash(git mv:*)",
+      "Bash(du:*)"
     ],
     "deny": [],
     "ask": []
