@@ -92,7 +92,7 @@ NB03: 4 个视图 CSR 矩阵 → ρ 计算 → adaptive α → 融合 → 评估
 ### `data/tabular_raw/` 目录
 
 - 结构：`{Id}/` 子目录，包含从 Kaggle 解压的数据集文件
-- **当前状态**：空（NB00 尚未执行）
+- **当前状态**：10,070+ 目录（412GB）。1K 实验产出 ~1,000 目录，10K 采集阶段新增 ~9,000 目录
 
 ### 前置输入文件
 
@@ -121,19 +121,23 @@ NB03: 4 个视图 CSR 矩阵 → ρ 计算 → adaptive α → 融合 → 评估
 
 ### 当前状态
 
-- NB00 已创建但 **未执行**（需要 Kaggle API 凭证：`~/.kaggle/kaggle.json`）
-- NB01 已瘦身但 **无法执行**（依赖 NB00 产物）
-- NB02、NB03 代码完整，等待上游产物
-- `data/tabular_raw/` 为空，`tmp/content/` 仅含空的 `api_cache/` 目录
-- 所有 `src/content/` 模块已完成，可导入
+- **NB00–NB04 已全部执行完毕**
+  - NB00：数据获取完成，产出 1,000 个数据集（`d_content.parquet`、`slug_to_ref.csv`、`main_tables.parquet`）
+  - NB01：验证分析完成，产物完整性和质量确认通过
+  - NB02：内容视图构建完成（列分析 → 嵌入 → 相似度图 → 一致性）
+  - NB03：四视图融合实验和评估完成（Naive/Adaptive/Adaptive+Cons 融合）
+  - NB04：D_content 子集评测完成（8 方法 × 22 指标）
+- **1K 实验完成**，结果已记录在 `notebooks/04_content/RESULTS_SUBSET_EVALUATION.md`
+  - Naive-Fusion 在子集上以 Unified@nDCG20 = 0.4749 超越 Meta-only（0.4383），提升 +8.36%
+  - 全局评测中因覆盖率仅 0.18% 导致稀释效应，融合未能超越 Meta-only
+- `data/tabular_raw/`：10,070+ 目录（412GB），含 1K 实验原始数据及 10K 采集新增数据
+- `tmp/content/`：包含所有 1K 实验产物（详见 §3）
+- 所有 `src/content/` 模块已完成，可导入（含新增 `acquisition.py`）
 - Git 分支：`wssit`
 
 ### 下一步
 
-1. **运行 NB00**：在有 Kaggle 凭证的环境中执行，预期产出 ~1000 个数据集（~10GB 存储）
-2. **运行 NB01**：验证 NB00 产物完整性和质量
-3. **运行 NB02**：构建内容视图（列分析 → 嵌入 → 相似度图 → 一致性）
-4. **运行 NB03**：四视图融合实验和评估
+- **10K/50K/100K 内容覆盖扩展实验** — 详见 §7
 
 ---
 
@@ -182,4 +186,89 @@ NB03: 4 个视图 CSR 矩阵 → ρ 计算 → adaptive α → 融合 → 评估
 
 ---
 
-*最后更新：2026-02-01*
+## 7. 内容覆盖扩展（10K/50K/100K）
+
+### 概述
+
+将 D_content 从 1,000 扩展到 10,000 / 50,000 / 100,000 个数据集，在更高覆盖率下验证四视图融合的增益。需求文档：`CONTENT_SCALE_PLAN.md`。
+
+### 新增代码文件
+
+| 文件 | 职责 |
+|------|------|
+| `src/content/acquisition.py` | 数据采集核心逻辑：候选筛选、API 搜索、下载、主表选择、非表格回填 |
+| `scripts/expand_content_coverage.py` | 数据采集入口脚本（`--target N`），支持中断恢复 |
+| `scripts/run_content_at_scale.py` | Pipeline + 评测入口脚本（`--target N --seed 42 --device auto`） |
+
+### 执行计划（12 步）
+
+| 步骤 | 内容 | 状态 |
+|------|------|------|
+| 0 | 撰写需求文档 `CONTENT_SCALE_PLAN.md` | ✅ 完成 |
+| 1 | 创建 `src/content/acquisition.py` | ✅ 完成 |
+| 2 | 修复 `src/content/pipeline.py` numpy fallback | ✅ 完成 |
+| 3 | 更新 `src/content/__init__.py` | ✅ 完成 |
+| 4 | 创建 `scripts/expand_content_coverage.py` | ✅ 完成 |
+| 5 | 创建 `scripts/run_content_at_scale.py` | ✅ 完成 |
+| 6 | 运行 10K 数据采集 | 🔄 进行中（下载阶段，接近完成） |
+| 7 | 运行 10K pipeline + 评测 | ❌ 未开始 |
+| 8 | 运行 50K 数据采集 | ❌ 未开始 |
+| 9 | 运行 50K pipeline + 评测 | ❌ 未开始 |
+| 10 | 运行 100K 数据采集 | ❌ 未开始 |
+| 11 | 运行 100K pipeline + 评测 | ❌ 未开始 |
+| 12 | 更新 RESULTS_SUBSET_EVALUATION.md §12 | ❌ 未开始 |
+
+### 步骤 6 详细进度（10K 数据采集）
+
+```bash
+python scripts/expand_content_coverage.py --target 10000
+```
+
+| 子阶段 | 状态 | 详情 |
+|--------|------|------|
+| 元数据加载 | ✅ | metadata_merged + DatasetVersions 加载成功 |
+| 候选池筛选 | ✅ | ~29,866 候选 |
+| API 搜索 | ✅ | 10,624/10,624 搜索完毕，11,824 total rows in slug_to_ref |
+| slug_to_ref 保存 | ✅ | `tmp/content/scale_10000/slug_to_ref.csv` — 11,825 行 |
+| d_content 构建 | ✅ | 10,000 candidates |
+| 数据集下载 | 🔄 | tabular_raw: 9,950 dirs（初始 1,000 + 新增 ~8,950），0 failures |
+| 主表选择 | ❌ | 等待下载完成 |
+| 非表格回填 | ❌ | 等待主表选择完成 |
+| 完整性检查 | ❌ | |
+| 输出保存 | ❌ | d_content.parquet / main_tables.parquet 尚不存在 |
+
+**关键数据**：
+- API 缓存：11,554 条（`tmp/content/api_cache/`）
+- slug_to_ref：11,825 行（`tmp/content/scale_10000/slug_to_ref.csv`）
+- tabular_raw：9,950 目录（412GB，目标 ~10,000）
+- 磁盘：已用 1.2TB / 7.0TB，剩余 5.9TB
+
+**注意**：脚本支持中断恢复——如果进程已终止，重新运行同一命令即可（会跳过已完成的 API 搜索和已下载数据集）。
+
+### 产物文件
+
+每个规模 N 产出于 `tmp/content/scale_{N}/`：
+
+| 文件 | 说明 |
+|------|------|
+| `d_content.parquet` | D_content 子集（~N 行） |
+| `main_tables.parquet` | 主表注册表 |
+| `slug_to_ref.csv` | API 匹配结果 |
+| `results_all_subsets.csv` | 评测结果（8 methods × multiple subsets） |
+
+共享下载目录：`data/tabular_raw/{Id}/`
+
+### 偏离度检查
+
+| 原始目标 (CONTENT_VIEW_EXTENSION.md) | 当前状态 |
+|--------------------------------------|---------|
+| 构建 S_tabcontent_symrow | ✅ 1K 完成 |
+| 元数据–内容一致性指标 | ✅ 完成 |
+| 四视图融合 S_fused4 | ✅ 1K 完成 |
+| 预算实验 | ✅ 完成 |
+| 银标准评测 | ✅ 完成 |
+| → 扩展到 10K/50K/100K | 🔄 自然延伸，未偏离 |
+
+---
+
+*最后更新：2026-02-02*

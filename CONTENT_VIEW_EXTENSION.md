@@ -558,9 +558,9 @@ def evaluate_method(prefix, k_eval=20):
 
 实施本扩展前需完成以下准备工作：
 
-- [ ] 验证 `kaggle datasets list -s {slug}` 搜索匹配流程：对代表性数据集（如 `heart-failure-clinical-data`）确认 Slug 匹配可靠性
-- [ ] 评估 Kaggle API 搜索速率限制，确认 B_ds=1000 批量匹配的可行性（可分批执行 + 缓存 `slug_to_ref.csv`）
-- [ ] 创建 `src/content/` 模块骨架（表格采样、列统计、向量编码等子模块）
-- [ ] 创建 `notebooks/04_content/` 实验 notebook（数据探索、视图构建、融合实验）
-- [ ] 验证 Kaggle API 配额与下载速率限制（B_ds=1000 批量下载的可行性）
-- [ ] 确认 `sentence-transformers/all-MiniLM-L6-v2` 模型可用且 GPU 环境就绪
+- [x] 验证 `kaggle datasets list -s {slug}` 搜索匹配流程：对代表性数据集（如 `heart-failure-clinical-data`）确认 Slug 匹配可靠性
+- [x] 评估 Kaggle API 搜索速率限制，确认 B_ds=1000 批量匹配的可行性（可分批执行 + 缓存 `slug_to_ref.csv`）
+- [x] 创建 `src/content/` 模块骨架（表格采样、列统计、向量编码等子模块）
+- [x] 创建 `notebooks/04_content/` 实验 notebook（数据探索、视图构建、融合实验）
+- [x] 验证 Kaggle API 配额与下载速率限制（B_ds=1000 批量下载的可行性）
+- [x] 确认 `sentence-transformers/all-MiniLM-L6-v2` 模型可用且 GPU 环境就绪
