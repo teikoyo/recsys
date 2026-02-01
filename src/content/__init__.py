@@ -59,6 +59,20 @@ from .pipeline import (
     run_content_pipeline,
     build_naive_fusion,
 )
+from .acquisition import (
+    TABULAR_TAGS,
+    BROAD_TAGS,
+    FILTER_PRESETS,
+    SEARCH_MARGIN,
+    get_filter_preset,
+    filter_candidates as filter_candidates_acq,
+    check_kaggle_api,
+    search_kaggle_slug,
+    match_slug_to_ref,
+    download_dataset,
+    backfill_non_tabular,
+    check_integrity,
+)
 
 __all__ = [
     # sampling
@@ -83,4 +97,9 @@ __all__ = [
     'METHODS_CONFIG',
     # pipeline
     'detect_device', 'run_content_pipeline', 'build_naive_fusion',
+    # acquisition
+    'TABULAR_TAGS', 'BROAD_TAGS', 'FILTER_PRESETS', 'SEARCH_MARGIN',
+    'get_filter_preset', 'filter_candidates_acq',
+    'check_kaggle_api', 'search_kaggle_slug', 'match_slug_to_ref',
+    'download_dataset', 'backfill_non_tabular', 'check_integrity',
 ]

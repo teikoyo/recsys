@@ -377,3 +377,67 @@
 | `tmp/content/ablation_experiments/ablation_all.csv` | 全部结果：9 配置 × 2 方法 = 18 行 |
 | `tmp/content/ablation_experiments/ablation_rows.csv` | 行消融：5 配置 × 2 方法 = 10 行 |
 | `tmp/content/ablation_experiments/ablation_cols.csv` | 列消融：5 配置 × 2 方法 = 10 行 |
+
+---
+
+## 12. 内容覆盖扩展实验（10K / 50K / 100K）
+
+### 实验设计
+
+将 D_content 从 1,000 扩展到 10,000 / 50,000 / 100,000 个数据集，测试更高内容覆盖率下四视图融合的效果。
+
+| 目标规模 | 筛选策略 | 候选池大小 | 预计磁盘 |
+|---------|---------|-----------|---------|
+| 10K | tabular tags, size 100KB-100MB, no view filter | ~29,866 | ~320GB |
+| 50K | broad tags*, size 50KB-500MB, no view filter | ~50,059 | ~1.6TB |
+| 100K | any tags, size 10KB-1GB, no view filter | ~214,603 | ~3.2TB |
+
+*broad tags = tabular + data visualization + feature engineering + statistics + finance + healthcare 等
+
+每个规模在三种评测子集上测试全部 8 方法：
+1. 仅 D_content_N 子集（100% 内容覆盖）
+2. D_content_N + random(50K)（稀释评测）
+3. D_content_N + random(100K)（进一步稀释）
+
+**脚本**:
+- `scripts/expand_content_coverage.py --target {N}` — 数据采集
+- `scripts/run_content_at_scale.py --target {N}` — 管线 + 评测
+
+### Table 7: 10K 规模结果
+
+> **待填充**：运行 `scripts/run_content_at_scale.py --target 10000` 后更新。
+
+| Method | D_content (10K) | +50K dilution | +100K dilution |
+|--------|----------------:|--------------:|---------------:|
+| Meta-only | — | — | — |
+| Content-only | — | — | — |
+| Naive-Fusion | — | — | — |
+| Adaptive-Fusion | — | — | — |
+| Adaptive+Cons | — | — | — |
+| Beh-only | — | — | — |
+| Tag-only | — | — | — |
+| Text-only | — | — | — |
+
+### Table 8: 50K 规模结果
+
+> **待填充**：运行 `scripts/run_content_at_scale.py --target 50000` 后更新。
+
+### Table 9: 100K 规模结果
+
+> **待填充**：运行 `scripts/run_content_at_scale.py --target 100000` 后更新。
+
+### 预期分析要点
+
+1. **覆盖率与融合增益关系**: 更高覆盖率应使融合方法在更大子集上也能超越 Meta-only
+2. **交叉点迁移**: 在 1K 实验中，Content-only 在 N=5K 时超越 Meta-only；10K 实验中此交叉点应后移
+3. **Adaptive vs Naive**: 更大 D_content 可能使 Adaptive 方法获得更多信息，拉开与 Naive 的差距
+4. **内容质量下降**: 放宽筛选条件可能导致新增数据集的表格质量下降，需关注 Content-only 的 Tag-nDCG 变化
+
+### 数据来源
+
+| 文件 | 说明 |
+|------|------|
+| `tmp/content/scale_10000/results_all_subsets.csv` | 10K 规模全部评测结果 |
+| `tmp/content/scale_50000/results_all_subsets.csv` | 50K 规模全部评测结果 |
+| `tmp/content/scale_100000/results_all_subsets.csv` | 100K 规模全部评测结果 |
+| `CONTENT_SCALE_PLAN.md` | 完整需求文档与执行计划 |

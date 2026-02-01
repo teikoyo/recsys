@@ -1,5 +1,104 @@
-data/*.csv
+# ========================================
+# Python
+# ========================================
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+
+# Virtual environments
+.env
+.venv
+env/
+venv/
+ENV/
+
+# ========================================
+# Jupyter Notebooks
+# ========================================
+.ipynb_checkpoints/
+*/.ipynb_checkpoints/
+
+# ========================================
+# IDE & Editors
+# ========================================
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.project
+.pydevproject
+.settings/
+
+# ========================================
+# OS generated files
+# ========================================
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+
+# ========================================
+# Data files (large files, raw data)
+# ========================================
 data/
-data/raw_data/*.csv
-/tmp
-/.vscode
+!data/.gitkeep
+
+# Root-level statistics (intermediate outputs)
+tag_cooccurrence.csv
+tag_statistics.csv
+
+# ========================================
+# Temporary & Output directories
+# ========================================
+tmp/
+random_walk_analysis_outputs/
+
+# ========================================
+# Model & Training artifacts
+# ========================================
+*.pt
+*.pth
+*.npy
+*.npz
+*.pkl
+*.pickle
+*.faiss
+*.bin
+*.h5
+*.hdf5
+*.onnx
+
+# Parquet data files (generated outputs)
+*.parquet
+
+# ========================================
+# Log files
+# ========================================
+*.log
+logs/
+
+# ========================================
+# Claude / AI assistant files
+# ========================================
+.claude/

@@ -258,11 +258,21 @@ def run_content_pipeline(
         k_search = min(k_sim + 1, B_actual)
         scores, idxs = index.search(Z, k_search)
     except ImportError:
-        print("[pipeline] FAISS not available, using numpy fallback")
-        sim_matrix = Z @ Z.T
+        print("[pipeline] FAISS not available, using sklearn NearestNeighbors fallback")
         k_search = min(k_sim + 1, B_actual)
-        idxs = np.argsort(-sim_matrix, axis=1)[:, :k_search]
-        scores = np.take_along_axis(sim_matrix, idxs, axis=1)
+        try:
+            from sklearn.neighbors import NearestNeighbors
+            nn = NearestNeighbors(
+                n_neighbors=k_search, metric="cosine", algorithm="brute",
+            )
+            nn.fit(Z)
+            distances, idxs = nn.kneighbors(Z)
+            scores = 1.0 - distances  # cosine similarity
+        except ImportError:
+            print("[pipeline] sklearn not available, using numpy dense fallback")
+            sim_matrix = Z @ Z.T
+            idxs = np.argsort(-sim_matrix, axis=1)[:, :k_search]
+            scores = np.take_along_axis(sim_matrix, idxs, axis=1)
 
     rows_list, cols_list, vals_list = [], [], []
     for i in range(B_actual):
