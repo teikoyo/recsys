@@ -1,4 +1,5 @@
 data/*.csv
+data/
 data/raw_data/*.csv
 /tmp
 /.vscode

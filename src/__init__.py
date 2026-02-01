@@ -15,6 +15,10 @@ Modules:
     - random_walk: Random walk corpus generation
     - sgns_model: SGNS model definition
     - metrics: Evaluation metrics (nDCG, MAP, MRR, etc.)
+
+Subpackages:
+    - content: Content view extension (table sampling, encoding, similarity,
+               consistency, and multi-view fusion)
 """
 
 from .ddp_utils import init_ddp, barrier, log0

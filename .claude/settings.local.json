@@ -1,23 +1,8 @@
 {
   "permissions": {
     "allow": [
-      "Bash(tree:*)",
-      "Bash(python3:*)",
-      "Bash(python add_remaining_cells.py:*)",
-      "Bash(python:*)",
-      "Bash(cat:*)",
-      "Bash(pip install:*)",
-      "Bash(fc-list:*)",
-      "Bash(find:*)",
-      "Bash(wc:*)",
-      "Bash(grep:*)",
-      "Bash(ls:*)",
-      "Bash(test:*)",
-      "Bash(file:*)",
-      "Bash(xxd:*)",
-      "Bash(xargs -I {} sh -c 'echo \"\"=== {} ===\"\" && head -1 {}')",
-      "Bash(git mv:*)",
-      "Bash(du:*)"
+      "Bash(*)",
+      "Bash(nvidia-smi:*)"
     ],
     "deny": [],
     "ask": []
