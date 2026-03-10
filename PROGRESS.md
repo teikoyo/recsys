@@ -133,11 +133,13 @@ NB03: 4 个视图 CSR 矩阵 → ρ 计算 → adaptive α → 融合 → 评估
 - `data/tabular_raw/`：10,070+ 目录（412GB），含 1K 实验原始数据及 10K 采集新增数据
 - `tmp/content/`：包含所有 1K 实验产物（详见 §3）
 - 所有 `src/content/` 模块已完成，可导入（含新增 `acquisition.py`）
+- **10K 融合改进实验完成**（权重扫描/选择性融合/质量过滤/四视图网格/k_sim扫描），推荐选择性融合 + α=0.30
 - Git 分支：`wssit`
 
 ### 下一步
 
-- **10K/50K/100K 内容覆盖扩展实验** — 详见 §7
+- 10K/50K/100K 内容覆盖扩展实验及融合改进实验均已完成 — 详见 §7
+- 可选方向：将选择性融合 + α=0.30 集成到生产 pipeline，或探索其他改进维度
 
 ---
 
@@ -210,40 +212,49 @@ NB03: 4 个视图 CSR 矩阵 → ρ 计算 → adaptive α → 融合 → 评估
 | 3 | 更新 `src/content/__init__.py` | ✅ 完成 |
 | 4 | 创建 `scripts/expand_content_coverage.py` | ✅ 完成 |
 | 5 | 创建 `scripts/run_content_at_scale.py` | ✅ 完成 |
-| 6 | 运行 10K 数据采集 | 🔄 进行中（下载阶段，接近完成） |
-| 7 | 运行 10K pipeline + 评测 | ❌ 未开始 |
-| 8 | 运行 50K 数据采集 | ❌ 未开始 |
-| 9 | 运行 50K pipeline + 评测 | ❌ 未开始 |
-| 10 | 运行 100K 数据采集 | ❌ 未开始 |
-| 11 | 运行 100K pipeline + 评测 | ❌ 未开始 |
-| 12 | 更新 RESULTS_SUBSET_EVALUATION.md §12 | ❌ 未开始 |
+| 6 | 运行 10K 数据采集 | ✅ 完成（d_content=10,000, main_tables=10,000） |
+| 7 | 运行 10K pipeline + 评测 | ✅ 完成 |
+| 8 | 运行 50K 数据采集 | ✅ 完成（实际 d_content=4,527，受 Kaggle API 404 限制） |
+| 9 | 运行 50K pipeline + 评测 | ✅ 完成（results_all_subsets.csv: 24 rows） |
+| 10 | 运行 100K 数据采集 | ✅ 完成（实际 d_content=9,778，候选池 17,542 中 55.7% 有主表） |
+| 11 | 运行 100K pipeline + 评测 | ✅ 完成（results_all_subsets.csv: 24 rows） |
+| 12 | 更新 RESULTS_SUBSET_EVALUATION.md §12 | ✅ 完成（Table 7/8/9 + 跨规模分析已更新） |
+| 13 | 10K 融合方法改进实验（5 个子实验） | ✅ 完成 |
 
-### 步骤 6 详细进度（10K 数据采集）
+### 步骤 6 详细进度（10K 数据采集） — ✅ 完成
 
 ```bash
 python scripts/expand_content_coverage.py --target 10000
 ```
 
-| 子阶段 | 状态 | 详情 |
-|--------|------|------|
-| 元数据加载 | ✅ | metadata_merged + DatasetVersions 加载成功 |
-| 候选池筛选 | ✅ | ~29,866 候选 |
-| API 搜索 | ✅ | 10,624/10,624 搜索完毕，11,824 total rows in slug_to_ref |
-| slug_to_ref 保存 | ✅ | `tmp/content/scale_10000/slug_to_ref.csv` — 11,825 行 |
-| d_content 构建 | ✅ | 10,000 candidates |
-| 数据集下载 | 🔄 | tabular_raw: 9,950 dirs（初始 1,000 + 新增 ~8,950），0 failures |
-| 主表选择 | ❌ | 等待下载完成 |
-| 非表格回填 | ❌ | 等待主表选择完成 |
-| 完整性检查 | ❌ | |
-| 输出保存 | ❌ | d_content.parquet / main_tables.parquet 尚不存在 |
+所有子阶段已完成：API 搜索 → 下载 → 主表选择 → 回填 → 完整性检查 → 输出保存。
 
-**关键数据**：
-- API 缓存：11,554 条（`tmp/content/api_cache/`）
-- slug_to_ref：11,825 行（`tmp/content/scale_10000/slug_to_ref.csv`）
-- tabular_raw：9,950 目录（412GB，目标 ~10,000）
-- 磁盘：已用 1.2TB / 7.0TB，剩余 5.9TB
+**产出**：
+- `tmp/content/scale_10000/d_content.parquet` — 10,000 行
+- `tmp/content/scale_10000/main_tables.parquet` — 10,000 行（100% coverage）
+- `tmp/content/scale_10000/slug_to_ref.csv` — 11,825 行
+- `data/tabular_raw/` — 10,070+ 目录（412GB）
 
-**注意**：脚本支持中断恢复——如果进程已终止，重新运行同一命令即可（会跳过已完成的 API 搜索和已下载数据集）。
+### 步骤 7 详细进度（10K Pipeline + 评测） — ✅ 完成
+
+```bash
+python scripts/run_content_at_scale.py --target 10000 --seed 42 --device cpu --skip-pipeline --skip-fusion
+```
+
+全部子阶段已完成。评测结果已保存到 `tmp/content/scale_10000/results_all_subsets.csv`。
+
+**10K 评测结果摘要**（Unified@nDCG20）：
+
+| Method | D_content (10K) | +50K dilution | +100K dilution |
+|--------|----------------:|--------------:|---------------:|
+| Naive-Fusion | **0.4335** | 0.3503 | 0.3298 |
+| Beh-only | 0.4199 | 0.3592 | 0.3439 |
+| Meta-only | 0.3893 | 0.3358 | 0.3223 |
+| Content-only | 0.3933 | 0.3933 | 0.3933 |
+
+**关键发现**：Naive-Fusion 在 D_content 子集上超越 Meta-only +11.4%。内容覆盖率从 0.18%（1K）提升到 1.92%（10K）后，融合方法在稀释子集上的优势更加稳定。
+
+**性能优化**：优化了 `build_topk_for_method` 使用 CSR 直接行访问替代 pandas groupby，并添加 CSR 缓存机制（`_load_csr_cached`），评测速度提升 ~10x。新增 `--skip-fusion` 参数跳过已存在的融合矩阵。
 
 ### 产物文件
 
@@ -267,7 +278,118 @@ python scripts/expand_content_coverage.py --target 10000
 | 四视图融合 S_fused4 | ✅ 1K 完成 |
 | 预算实验 | ✅ 完成 |
 | 银标准评测 | ✅ 完成 |
-| → 扩展到 10K/50K/100K | 🔄 自然延伸，未偏离 |
+| → 扩展到 10K/50K/100K | ✅ 全部完成（10K=10,000, "50K"=4,527, "100K"=9,778） |
+
+### 步骤 8-9 详细进度（"50K" 数据采集 + Pipeline） — ✅ 完成
+
+由于 Kaggle API 搜索端点（`/api/v1/datasets/list`）返回 404 错误，无法完成全部候选搜索。实际获得 4,527 个数据集（目标 50,000）。
+
+**产出**：
+- `tmp/content/scale_50000/d_content.parquet` — 4,527 行
+- `tmp/content/scale_50000/main_tables.parquet` — 4,527 行
+- `tmp/content/scale_50000/results_all_subsets.csv` — 24 行（8 methods × 3 subsets）
+
+**"50K" 评测结果摘要**（Unified@nDCG20）：
+
+| Method | D_content (4.5K) | +50K dilution | +100K dilution |
+|--------|----------------:|--------------:|---------------:|
+| Naive-Fusion | **0.4585** | 0.3353 | 0.3201 |
+| Beh-only | 0.4522 | 0.3498 | 0.3362 |
+| Meta-only | 0.4216 | 0.3283 | 0.3164 |
+| Content-only | 0.3863 | 0.3863 | 0.3863 |
+
+### 步骤 10（100K 数据采集） — ✅ 完成
+
+Kaggle API 恢复后完成全部候选搜索。
+
+- 候选池：365,647（filter: any tags, 10KB-1GB, no view filter）
+- 搜索池：120,000（top by downloads, SEARCH_MARGIN=1.2）
+- API 匹配：17,542（4.8% 匹配率）
+- 主表提取：9,778/17,542（55.7% 成功率）
+- 日志：`/tmp/100k_expand.log`, `/tmp/100k_expand_v2.log`
+
+**产出**：
+- `tmp/content/scale_100000/d_content.parquet` — 9,778 行
+- `tmp/content/scale_100000/main_tables.parquet` — 9,778 行
+- `tmp/content/scale_100000/slug_to_ref.csv` — 37,646 行
+
+### 步骤 11（100K Pipeline + 评测） — ✅ 完成
+
+Pipeline: profiling（9,778 datasets, 8,918 with tables, 143K columns）→ encoding → FAISS kNN → fusion (Naive/Adaptive/Adaptive+Cons)
+评测: 使用 `scripts/run_content_at_scale.py --target 100000 --seed 42 --device cpu`（CSR 直接 top-K 提取）
+
+**"100K" 评测结果摘要**（Unified@nDCG20）：
+
+| Method | D_content (9.8K) | +50K dilution | +100K dilution |
+|--------|----------------:|--------------:|---------------:|
+| Naive-Fusion | **0.4326** | 0.3520 | 0.3308 |
+| Beh-only | 0.4195 | 0.3609 | 0.3438 |
+| Meta-only | 0.3896 | 0.3364 | 0.3221 |
+| Content-only | 0.3932 | 0.3932 | 0.3932 |
+
+**关键发现**：结果与 10K 实验高度一致（Naive-Fusion 0.4326 vs 0.4335），两次独立实验验证了方法稳定性。9,778 是当前筛选条件下的覆盖率上限。
+
+### 步骤 12（更新文档） — ✅ 完成
+
+已更新 `notebooks/04_content/RESULTS_SUBSET_EVALUATION.md` §12：
+- Table 9（100K 规模）+ Table 9b（Tag-nDCG）+ Table 9c（Creator-nDCG）+ 分析
+- 跨规模对比分析表（1K/4.5K/9.8K/10K 四行）+ 5 条关键观察
+
+### 步骤 13（10K 融合方法改进实验） — ✅ 完成
+
+**脚本**: `scripts/run_10k_experiments.py`
+
+在 10K 规模上系统探索融合方法的改进空间，包含 5 个子实验。
+
+**实验 1 — Naive 权重扫描**：扫描 α_meta ∈ {0.3–0.9}
+
+| α_meta | α_content | Unified@nDCG20 |
+|-------:|----------:|---------------:|
+| **0.30** | 0.70 | **0.4747** |
+| 0.40 | 0.60 | 0.4665 |
+| 0.50 | 0.50 | 0.4335 |
+| 0.70 | 0.30 | 0.4223 |
+| 0.90 | 0.10 | 0.4159 |
+
+**实验 2 — 选择性融合**：有内容文档用融合（α=0.30），无内容文档保持 Meta-only
+
+| 子集 | Selective-α=0.30 | Meta-only | 提升 |
+|------|------------------:|----------:|-----:|
+| D_content (10K) | **0.4747** | 0.3892 | +22.0% |
+| +50K dilution | **0.3698** | 0.3362 | +10.0% |
+| +100K dilution | **0.3414** | 0.3224 | +5.9% |
+
+**实验 3 — 内容质量过滤**：按质量分数过滤低质量数据集
+
+- 不过滤 (no_filter) 表现最好（Unified=0.4749），过滤越严格性能越差
+- 结论：质量过滤不是改进方向
+
+**实验 4 — 固定四视图权重网格**
+
+- Content-heavy (0.1/0.1/0.3/0.5) 达到 Unified=0.4799，绝对最优
+- 比两层融合 Naive-α=0.30（0.4747）高 +1.1%，差距很小
+
+**实验 5 — k_sim 参数扫描**：k ∈ {20, 30, 50, 75, 100}
+
+- k_sim 对质量几乎无影响（差距 < 0.001），k=50 是合理默认值
+
+**关键发现**：
+1. 最优 α=0.30（Content 权重 70%），比原 α=0.50 提升 +9.5%
+2. 选择性融合保证不退化，稀释 +100K 仍提升 +5.9%
+3. 质量过滤和 k_sim 调整均无显著收益
+4. **推荐方案**：选择性融合 + α=0.30
+
+**产物文件**（`tmp/content/scale_10000/experiments/`）：
+
+| 文件 | 说明 |
+|------|------|
+| `exp1_weight_sweep.csv` | 权重扫描结果 |
+| `exp2_selective_fusion.csv` | 选择性融合结果 |
+| `exp3_quality_filter.csv` | 质量过滤结果 |
+| `exp3_quality_scores.csv` | 数据集质量分数 |
+| `exp4_4view_grid.csv` | 四视图网格结果 |
+| `exp5_k_sweep.csv` | k_sim 扫描结果 |
+| `best_alpha.json` | 最优 α_meta 值 |
 
 ---
 

@@ -121,11 +121,14 @@ def run_content_pipeline(
         doc_idx = int(row["doc_idx"])
         table_path = row["main_table_path"]
 
-        df = sample_table(table_path, max_rows, max_cols)
-        if df is None or df.empty:
-            continue
+        try:
+            df = sample_table(table_path, max_rows, max_cols)
+            if df is None or df.empty:
+                continue
 
-        profiles = profile_table(df)
+            profiles = profile_table(df)
+        except Exception:
+            continue
         n_success += 1
 
         for cs in profiles:

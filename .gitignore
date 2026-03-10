@@ -62,7 +62,7 @@ Thumbs.db
 # Data files (large files, raw data)
 # ========================================
 data/
-!data/.gitkeep
+!data/README.md
 
 # Root-level statistics (intermediate outputs)
 tag_cooccurrence.csv
