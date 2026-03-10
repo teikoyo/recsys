@@ -32,7 +32,6 @@ from scipy import sparse
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 
-from src.content.consistency import compute_jaccard_and_consistency
 from src.content.evaluation import (
     METHODS_CONFIG,
     evaluate_all_methods,
@@ -80,6 +79,10 @@ def parse_args():
     p.add_argument(
         "--skip-pipeline", action="store_true",
         help="Skip pipeline if S_tabcontent already exists",
+    )
+    p.add_argument(
+        "--skip-fusion", action="store_true",
+        help="Skip fusion stages if manifests already exist",
     )
     p.add_argument(
         "--dilution-sizes", type=int, nargs="*", default=None,
@@ -132,6 +135,65 @@ def build_adaptive_fusion(
     return manifest_path
 
 
+def _compute_consistency_from_csr(S_meta, S_cont, d_content_ids):
+    """Compute per-doc Jaccard + weighted consistency directly from CSR matrices.
+
+    This avoids the slow iterrows approach of the original
+    compute_jaccard_and_consistency, which expects pre-built neighbor dicts.
+
+    Args:
+        S_meta: CSR matrix (N x N) for metadata fusion view.
+        S_cont: CSR matrix (N x N) for content view.
+        d_content_ids: List of doc_idx values in D_content.
+
+    Returns:
+        DataFrame with columns: doc_idx, jaccard, weighted_consistency,
+        n_meta, n_cont, n_intersect.
+    """
+    results = []
+    for doc_i in d_content_ids:
+        # Extract neighbors and weights from CSR for meta view
+        m_start, m_end = S_meta.indptr[doc_i], S_meta.indptr[doc_i + 1]
+        meta_cols = S_meta.indices[m_start:m_end]
+        meta_vals = S_meta.data[m_start:m_end]
+        meta_set = set(meta_cols.tolist())
+        meta_w = {int(meta_cols[j]): float(meta_vals[j]) for j in range(len(meta_cols))}
+
+        # Extract neighbors and weights from CSR for content view
+        c_start, c_end = S_cont.indptr[doc_i], S_cont.indptr[doc_i + 1]
+        cont_cols = S_cont.indices[c_start:c_end]
+        cont_vals = S_cont.data[c_start:c_end]
+        cont_set = set(cont_cols.tolist())
+        cont_w = {int(cont_cols[j]): float(cont_vals[j]) for j in range(len(cont_cols))}
+
+        # Jaccard
+        inter = meta_set & cont_set
+        union = meta_set | cont_set
+        jaccard = len(inter) / max(len(union), 1)
+
+        # Weighted consistency
+        w_sum = 0.0
+        for j in inter:
+            w_sum += min(meta_w.get(j, 0.0), cont_w.get(j, 0.0))
+
+        meta_total = sum(meta_w.values())
+        cont_total = sum(cont_w.values())
+        w_max = min(meta_total, cont_total) if (meta_total > 0 and cont_total > 0) else 0.0
+        consistency = w_sum / max(w_max, 1e-12) if w_max > 0 else 0.0
+        consistency = min(consistency, 1.0)
+
+        results.append({
+            "doc_idx": doc_i,
+            "jaccard": jaccard,
+            "weighted_consistency": consistency,
+            "n_meta": len(meta_set),
+            "n_cont": len(cont_set),
+            "n_intersect": len(inter),
+        })
+
+    return pd.DataFrame(results)
+
+
 def build_adaptive_cons_fusion(
     scale_dir: Path,
     tmp_dir: Path,
@@ -161,11 +223,11 @@ def build_adaptive_cons_fusion(
     if cons_path.exists():
         c_scores = pd.read_parquet(cons_path, engine="fastparquet")
     else:
-        # Compute meta-content consistency
+        # Compute meta-content consistency from CSR matrices
         S_fused3 = load_csr_from_manifest("S_fused3_symrow", N, tmp_dir, k=k_sim)
-        c_scores = compute_jaccard_and_consistency(
-            S_fused3, S_tabcontent, k=k_sim,
-        )
+        d_content = pd.read_parquet(scale_dir / "d_content.parquet", engine="fastparquet")
+        d_content_ids = d_content["doc_idx"].astype(int).tolist()
+        c_scores = _compute_consistency_from_csr(S_fused3, S_tabcontent, d_content_ids)
         c_scores.to_parquet(cons_path, engine="fastparquet")
         print(f"[scale] Consistency scores computed and saved")
 
@@ -238,38 +300,50 @@ def main():
     # ------------------------------------------------------------------
     # 2. Build Naive Fusion
     # ------------------------------------------------------------------
-    print(f"\n{'=' * 60}")
-    print("[scale] Building Naive Fusion...")
-    print(f"{'=' * 60}")
-    t1 = time.time()
-    build_naive_fusion(
-        S_fused3_dir=TMP_DIR,
-        S_tabcontent_dir=SCALE_DIR,
-        output_dir=SCALE_DIR,
-        N=args.n_total,
-        k_sim=args.k_sim,
-    )
-    print(f"[scale] Naive fusion built in {time.time() - t1:.1f}s")
+    naive_manifest = SCALE_DIR / f"S_naive4_symrow_k{args.k_sim}_manifest.json"
+    if args.skip_fusion and naive_manifest.exists():
+        print("[scale] Skipping Naive Fusion (manifest exists)")
+    else:
+        print(f"\n{'=' * 60}")
+        print("[scale] Building Naive Fusion...")
+        print(f"{'=' * 60}")
+        t1 = time.time()
+        build_naive_fusion(
+            S_fused3_dir=TMP_DIR,
+            S_tabcontent_dir=SCALE_DIR,
+            output_dir=SCALE_DIR,
+            N=args.n_total,
+            k_sim=args.k_sim,
+        )
+        print(f"[scale] Naive fusion built in {time.time() - t1:.1f}s")
 
     # ------------------------------------------------------------------
     # 3. Build Adaptive Fusion
     # ------------------------------------------------------------------
-    print(f"\n{'=' * 60}")
-    print("[scale] Building Adaptive Fusion...")
-    print(f"{'=' * 60}")
-    t2 = time.time()
-    build_adaptive_fusion(SCALE_DIR, TMP_DIR, args.n_total, args.k_sim)
-    print(f"[scale] Adaptive fusion built in {time.time() - t2:.1f}s")
+    adaptive_manifest = SCALE_DIR / f"S_fused4_symrow_k{args.k_sim}_manifest.json"
+    if args.skip_fusion and adaptive_manifest.exists():
+        print("[scale] Skipping Adaptive Fusion (manifest exists)")
+    else:
+        print(f"\n{'=' * 60}")
+        print("[scale] Building Adaptive Fusion...")
+        print(f"{'=' * 60}")
+        t2 = time.time()
+        build_adaptive_fusion(SCALE_DIR, TMP_DIR, args.n_total, args.k_sim)
+        print(f"[scale] Adaptive fusion built in {time.time() - t2:.1f}s")
 
     # ------------------------------------------------------------------
     # 4. Build Adaptive+Cons Fusion
     # ------------------------------------------------------------------
-    print(f"\n{'=' * 60}")
-    print("[scale] Building Adaptive+Cons Fusion...")
-    print(f"{'=' * 60}")
-    t3 = time.time()
-    build_adaptive_cons_fusion(SCALE_DIR, TMP_DIR, args.n_total, args.k_sim)
-    print(f"[scale] Adaptive+Cons fusion built in {time.time() - t3:.1f}s")
+    cons_manifest = SCALE_DIR / f"S_fused4c_symrow_k{args.k_sim}_manifest.json"
+    if args.skip_fusion and cons_manifest.exists():
+        print("[scale] Skipping Adaptive+Cons Fusion (manifest exists)")
+    else:
+        print(f"\n{'=' * 60}")
+        print("[scale] Building Adaptive+Cons Fusion...")
+        print(f"{'=' * 60}")
+        t3 = time.time()
+        build_adaptive_cons_fusion(SCALE_DIR, TMP_DIR, args.n_total, args.k_sim)
+        print(f"[scale] Adaptive+Cons fusion built in {time.time() - t3:.1f}s")
 
     # ------------------------------------------------------------------
     # 5. Load silver standards

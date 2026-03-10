@@ -159,6 +159,19 @@ def sample_table(path, max_rows=1024, max_cols=60):
     # Drop all-null columns
     df = df.dropna(axis=1, how="all")
 
+    # Drop columns with unhashable types (e.g. lists, dicts)
+    hashable_cols = []
+    for c in df.columns:
+        try:
+            df[c].nunique()
+            hashable_cols.append(c)
+        except TypeError:
+            pass
+    df = df[hashable_cols]
+
+    if df.empty or len(df.columns) == 0:
+        return None
+
     # Drop constant columns (nunique <= 1)
     nuniques = df.nunique()
     df = df.loc[:, nuniques > 1]
@@ -240,10 +253,19 @@ def profile_column(series, col_name):
 
     if dt_ratio >= TAU_DT:
         dt_valid = dt_converted.dropna()
-        span = (dt_valid.max() - dt_valid.min()).days if len(dt_valid) > 1 else 0
+        try:
+            span = (dt_valid.max() - dt_valid.min()).days if len(dt_valid) > 1 else 0
+        except (OverflowError, pd.errors.OutOfBoundsDatetime, Exception):
+            span = 0
+        try:
+            earliest_str = str(dt_valid.min().date())
+            latest_str = str(dt_valid.max().date())
+        except (OverflowError, Exception):
+            earliest_str = "unknown"
+            latest_str = "unknown"
         stats = {
-            "earliest": str(dt_valid.min().date()),
-            "latest": str(dt_valid.max().date()),
+            "earliest": earliest_str,
+            "latest": latest_str,
             "span_days": int(span),
         }
         return ColStats(name=col_name, dtype="datetime", missing_pct=missing_pct,

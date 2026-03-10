@@ -30,6 +30,21 @@ from .similarity import load_csr_from_manifest, load_manifest_flexible
 
 
 # ---------------------------------------------------------------------------
+# CSR matrix cache (avoids reloading the same large matrix multiple times)
+# ---------------------------------------------------------------------------
+
+_csr_cache: Dict[str, Any] = {}
+
+
+def _load_csr_cached(prefix: str, N: int, base_dir, k: int = 50):
+    """Load CSR matrix with caching by (prefix, base_dir) key."""
+    cache_key = f"{base_dir}/{prefix}_k{k}"
+    if cache_key not in _csr_cache:
+        _csr_cache[cache_key] = load_csr_from_manifest(prefix, N, base_dir, k=k)
+    return _csr_cache[cache_key]
+
+
+# ---------------------------------------------------------------------------
 # Evaluation constants
 # ---------------------------------------------------------------------------
 
@@ -160,35 +175,51 @@ def build_topk_for_method(
     k_eval: int,
     base_dir,
     k_sim: int = 50,
+    subset: Optional[Set[int]] = None,
 ) -> Tuple[Dict[int, np.ndarray], Dict[int, np.ndarray]]:
     """Load similarity edges and return per-doc top-K neighbors.
+
+    Uses CSR matrix for efficient row-wise access instead of pandas groupby.
 
     Args:
         prefix: Manifest prefix (e.g. ``S_fused3_symrow``).
         k_eval: Number of neighbors to keep per document.
         base_dir: Directory containing the manifest.
         k_sim: k value used in the manifest filename.
+        subset: If provided, only extract neighbors for these doc indices.
 
     Returns:
         ``(nbr_idx, nbr_w)`` dicts mapping doc_idx to neighbor arrays.
     """
-    man, parts, manifest_dir = load_manifest_flexible(prefix, base_dir, k=k_sim)
-    dfs = []
-    for pf in parts:
-        path = manifest_dir / pf
-        if path.exists():
-            dfs.append(pd.read_parquet(path, engine="fastparquet"))
-    if not dfs:
+    man, _, _ = load_manifest_flexible(prefix, base_dir, k=k_sim)
+    N = man.get("nodes", 0)
+    if N == 0:
         return {}, {}
-    edges = pd.concat(dfs, ignore_index=True)
+
+    S = _load_csr_cached(prefix, N, base_dir, k=k_sim)
 
     nbr_idx: Dict[int, np.ndarray] = {}
     nbr_w: Dict[int, np.ndarray] = {}
-    for row_i, group in edges.groupby("row"):
-        row_i = int(row_i)
-        top = group.nlargest(k_eval, "val")
-        nbr_idx[row_i] = top["col"].values.astype(np.int64)
-        nbr_w[row_i] = top["val"].values.astype(np.float32)
+
+    rows_to_check = subset if subset is not None else range(N)
+    for row_i in rows_to_check:
+        if row_i < 0 or row_i >= N:
+            continue
+        start = S.indptr[row_i]
+        end = S.indptr[row_i + 1]
+        if end == start:
+            continue
+        cols = S.indices[start:end]
+        vals = S.data[start:end]
+        if len(cols) <= k_eval:
+            order = np.argsort(-vals)
+            nbr_idx[row_i] = cols[order].astype(np.int64)
+            nbr_w[row_i] = vals[order].astype(np.float32)
+        else:
+            top_k = np.argpartition(-vals, k_eval)[:k_eval]
+            top_k = top_k[np.argsort(-vals[top_k])]
+            nbr_idx[row_i] = cols[top_k].astype(np.int64)
+            nbr_w[row_i] = vals[top_k].astype(np.float32)
     return nbr_idx, nbr_w
 
 
@@ -221,7 +252,7 @@ def evaluate_method_on_subset(
     Returns:
         ``(results_dict, per_doc_records)`` or ``(None, [])`` on failure.
     """
-    nbr_idx, nbr_w = build_topk_for_method(prefix, k_eval, base_dir, k_sim)
+    nbr_idx, nbr_w = build_topk_for_method(prefix, k_eval, base_dir, k_sim, subset=subset)
     if not nbr_idx:
         if verbose:
             print(f"  WARNING: No neighbors loaded for {method_name}")
