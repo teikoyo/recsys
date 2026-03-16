@@ -30,8 +30,8 @@ import pandas as pd
 from scipy import sparse
 
 ROOT = Path(__file__).resolve().parent.parent
-sys.path.insert(0, str(ROOT))
 
+from src.constants import CORPUS_SIZE_DEFAULT
 from src.content.evaluation import (
     METHODS_CONFIG,
     evaluate_all_methods,
@@ -67,7 +67,7 @@ def parse_args():
     p.add_argument("--device", type=str, default="auto")
     p.add_argument("--k-eval", type=int, default=20)
     p.add_argument("--k-sim", type=int, default=50)
-    p.add_argument("--n-total", type=int, default=521735)
+    p.add_argument("--n-total", type=int, default=CORPUS_SIZE_DEFAULT)
     p.add_argument(
         "--max-rows", type=int, default=1024,
         help="MAX_ROWS for table sampling",

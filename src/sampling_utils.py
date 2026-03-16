@@ -15,8 +15,10 @@ from typing import Tuple
 import numpy as np
 import torch
 
+from .constants import NS_POWER_DEFAULT
 
-def build_ns_dist_from_deg(deg: np.ndarray, power: float = 0.75) -> np.ndarray:
+
+def build_ns_dist_from_deg(deg: np.ndarray, power: float = NS_POWER_DEFAULT) -> np.ndarray:
     """
     Build negative sampling distribution from node degrees.
 

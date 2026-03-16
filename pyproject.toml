@@ -1,0 +1,28 @@
+[build-system]
+requires = ["setuptools>=68.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "ws-sgns"
+version = "1.0.0"
+description = "WS-SGNS multi-view dataset recommendation system"
+requires-python = ">=3.9"
+dependencies = [
+    "numpy>=1.21",
+    "pandas>=1.4",
+    "scipy>=1.7",
+    "torch>=1.12",
+    "fastparquet>=0.8",
+]
+
+[project.optional-dependencies]
+content = ["sentence-transformers>=2.2", "faiss-cpu>=1.7"]
+gpu = ["faiss-gpu>=1.7"]
+dev = ["pytest>=7.0", "pytest-cov>=4.0"]
+
+[tool.setuptools.packages.find]
+include = ["src*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+markers = ["gpu: requires CUDA", "integration: requires full dataset"]

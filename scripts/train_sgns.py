@@ -26,11 +26,8 @@ Usage:
     python scripts/train_sgns.py --views tag --window_tag 8 --batch_pairs_tag 100000
 """
 
-import os
 import gc
-import sys
 import time
-import argparse
 from pathlib import Path
 
 import numpy as np
@@ -39,106 +36,15 @@ import torch
 import torch.nn as nn
 import torch.distributed as dist
 
-# Add parent directory to path for src imports
-sys.path.insert(0, str(Path(__file__).parent.parent))
-
-from src.ddp_utils import init_ddp, barrier, log0, cleanup_ddp
+from src.config import TrainConfig
+from src.constants import TAG_VIEW_SEED_OFFSET, TEXT_VIEW_SEED_OFFSET
+from src.log import get_logger, log_rank0
+from src.ddp_utils import init_ddp, barrier, cleanup_ddp
 from src.csr_utils import load_csr_triplet_parquet
 from src.sampling_utils import build_ns_dist_from_deg, build_alias_on_device
 from src.pair_batch_utils import iter_pairs_from_corpus, batch_pairs_and_negs_fast
 from src.random_walk import build_corpus
 from src.sgns_model import SGNS
-
-
-def parse_args():
-    """Parse command line arguments."""
-    p = argparse.ArgumentParser(
-        description="WS-SGNS Trainer (Unified)",
-        formatter_class=argparse.ArgumentDefaultsHelpFormatter
-    )
-
-    # Core settings
-    p.add_argument("--tmp_dir", type=str, default="./tmp",
-                   help="Directory containing preprocessed data")
-    p.add_argument("--views", type=str, default="tag,text",
-                   help="Views to train: 'tag', 'text', or 'tag,text'")
-    p.add_argument("--epochs", type=int, default=4,
-                   help="Number of training epochs per view")
-    p.add_argument("--dim", type=int, default=256,
-                   help="Embedding dimension")
-    p.add_argument("--neg", type=int, default=10,
-                   help="Number of negative samples per positive")
-    p.add_argument("--lr", type=float, default=0.025,
-                   help="Learning rate")
-    p.add_argument("--ns_power", type=float, default=0.75,
-                   help="Power for negative sampling distribution")
-    p.add_argument("--seed", type=int, default=2025,
-                   help="Random seed")
-    p.add_argument("--accum", type=int, default=1,
-                   help="Gradient accumulation steps")
-
-    # Optimizer settings
-    p.add_argument("--optimizer", type=str, default="sgd",
-                   choices=["sgd", "sparse_adam", "adagrad"],
-                   help="Optimizer type")
-    p.add_argument("--sparse", type=lambda s: s.lower() in ["true", "1", "yes"],
-                   default=False, help="Use sparse embeddings")
-
-    # Numeric precision
-    p.add_argument("--amp", type=lambda s: s.lower() in ["true", "1", "yes"],
-                   default=True, help="Enable AMP (mixed precision)")
-    p.add_argument("--tf32", type=lambda s: s.lower() in ["true", "1", "yes"],
-                   default=True, help="Enable TF32 acceleration")
-
-    # Tag view parameters
-    p.add_argument("--window_tag", type=int, default=5,
-                   help="Window size for tag view")
-    p.add_argument("--keep_prob_tag", type=float, default=1.0,
-                   help="Context keep probability for tag view")
-    p.add_argument("--forward_only_tag",
-                   type=lambda s: s.lower() in ["true", "1", "yes"],
-                   default=False, help="Forward-only context for tag view")
-    p.add_argument("--ctx_cap_tag", type=int, default=0,
-                   help="Context cap per center for tag view (0=unlimited)")
-    p.add_argument("--batch_pairs_tag", type=int, default=204800,
-                   help="Batch size (pairs) for tag view")
-    p.add_argument("--max_pairs_tag", type=int, default=20_000_000,
-                   help="Max pairs per epoch for tag view")
-    p.add_argument("--max_sents_tag", type=int, default=None,
-                   help="Max sentences for tag view (None=unlimited)")
-
-    # Text view parameters
-    p.add_argument("--window_text", type=int, default=4,
-                   help="Window size for text view")
-    p.add_argument("--keep_prob_text", type=float, default=0.35,
-                   help="Context keep probability for text view")
-    p.add_argument("--forward_only_text",
-                   type=lambda s: s.lower() in ["true", "1", "yes"],
-                   default=True, help="Forward-only context for text view")
-    p.add_argument("--ctx_cap_text", type=int, default=4,
-                   help="Context cap per center for text view (0=unlimited)")
-    p.add_argument("--batch_pairs_text", type=int, default=204800,
-                   help="Batch size (pairs) for text view")
-    p.add_argument("--max_pairs_text", type=int, default=20_000_000,
-                   help="Max pairs per epoch for text view")
-    p.add_argument("--max_sents_text", type=int, default=None,
-                   help="Max sentences for text view (None=unlimited)")
-
-    # Logging and checkpointing
-    p.add_argument("--log_every", type=int, default=200,
-                   help="Log every N steps")
-    p.add_argument("--eval_samples_per_view", type=int, default=3,
-                   help="Number of samples for lightweight eval")
-    p.add_argument("--eval_topk", type=int, default=5,
-                   help="Top-K for lightweight eval")
-    p.add_argument("--save_epoch_emb",
-                   type=lambda s: s.lower() in ["true", "1", "yes"],
-                   default=True, help="Save embeddings each epoch")
-    p.add_argument("--emb_dtype", type=str, default="float32",
-                   choices=["float32", "float16"],
-                   help="Embedding save precision")
-
-    return p.parse_args()
 
 
 def pick_eval_samples(starts_np: np.ndarray, k: int, seed: int) -> np.ndarray:
@@ -175,18 +81,22 @@ def quick_eval_neighbors(model: nn.Module, sample_idx: np.ndarray,
 
 def train_view(view_name: str, N: int, start_nodes: np.ndarray,
                degD: np.ndarray, corpus, device: torch.device,
-               is_ddp: bool, rank: int, args, out_path: Path,
+               is_ddp: bool, rank: int, cfg: TrainConfig, out_path: Path,
                doc_ids: np.ndarray):
     """Train embeddings for a single view."""
-    torch.manual_seed(args.seed + (11 if view_name == "tag" else 23))
+    logger = get_logger("train_sgns")
+
+    seed_offset = TAG_VIEW_SEED_OFFSET if view_name == "tag" else TEXT_VIEW_SEED_OFFSET
+    torch.manual_seed(cfg.seed + seed_offset)
 
     # DDP + sparse is unstable, force dense
-    sparse_rt = bool(args.sparse)
+    sparse_rt = bool(cfg.sparse)
     if is_ddp and sparse_rt:
-        log0(is_ddp, rank, f"[Warn] DDP + sparse unstable, switching to dense.")
+        log_rank0(logger, is_ddp, rank,
+                  f"[Warn] DDP + sparse unstable, switching to dense.")
         sparse_rt = False
 
-    model = SGNS(vocab_size=N, dim=args.dim, sparse=sparse_rt).to(device)
+    model = SGNS(vocab_size=N, dim=cfg.dim, sparse=sparse_rt).to(device)
 
     if is_ddp:
         model = nn.parallel.DistributedDataParallel(
@@ -198,51 +108,43 @@ def train_view(view_name: str, N: int, start_nodes: np.ndarray,
         )
 
     # Setup optimizer
-    if sparse_rt and args.optimizer.lower() == "sparse_adam":
-        optimizer = torch.optim.SparseAdam(list(model.parameters()), lr=args.lr)
-    elif sparse_rt and args.optimizer.lower() == "adagrad":
-        optimizer = torch.optim.Adagrad(list(model.parameters()), lr=args.lr)
+    if sparse_rt and cfg.optimizer.lower() == "sparse_adam":
+        optimizer = torch.optim.SparseAdam(list(model.parameters()), lr=cfg.lr)
+    elif sparse_rt and cfg.optimizer.lower() == "adagrad":
+        optimizer = torch.optim.Adagrad(list(model.parameters()), lr=cfg.lr)
     else:
-        optimizer = torch.optim.SGD(model.parameters(), lr=args.lr)
+        optimizer = torch.optim.SGD(model.parameters(), lr=cfg.lr)
 
     # AMP scaler
     try:
-        scaler = torch.amp.GradScaler('cuda', enabled=args.amp)
+        scaler = torch.amp.GradScaler('cuda', enabled=cfg.amp)
     except TypeError:
-        scaler = torch.cuda.amp.GradScaler(enabled=args.amp)
+        scaler = torch.cuda.amp.GradScaler(enabled=cfg.amp)
 
     # Build negative sampling alias table
-    ns_dist = build_ns_dist_from_deg(degD, power=args.ns_power)
+    ns_dist = build_ns_dist_from_deg(degD, power=cfg.ns_power)
     ns_prob_t, ns_alias_t = build_alias_on_device(ns_dist, device)
 
     # Get per-view parameters
-    if view_name == "tag":
-        v_window = args.window_tag
-        v_keep = args.keep_prob_tag
-        v_forward = args.forward_only_tag
-        v_cap = args.ctx_cap_tag
-        v_batch = args.batch_pairs_tag
-        v_max_pairs = args.max_pairs_tag
-        v_max_sents = args.max_sents_tag
-    else:
-        v_window = args.window_text
-        v_keep = args.keep_prob_text
-        v_forward = args.forward_only_text
-        v_cap = args.ctx_cap_text
-        v_batch = args.batch_pairs_text
-        v_max_pairs = args.max_pairs_text
-        v_max_sents = args.max_sents_text
+    vp = cfg.view_params(view_name)
+    v_window = vp.window
+    v_keep = vp.keep_prob
+    v_forward = vp.forward_only
+    v_cap = vp.ctx_cap
+    v_batch = vp.batch_pairs
+    v_max_pairs = vp.max_pairs
+    v_max_sents = vp.max_sents
 
-    eval_samples = pick_eval_samples(start_nodes, args.eval_samples_per_view, args.seed + 7)
+    eval_samples = pick_eval_samples(start_nodes, cfg.eval_samples_per_view, cfg.seed + 7)
 
-    log0(is_ddp, rank,
-         f"[Train-{view_name}] epochs={args.epochs}, dim={args.dim}, "
-         f"window={v_window}, neg={args.neg}, batch={v_batch}, "
-         f"accum={args.accum}, AMP={args.amp}, DDP={is_ddp}")
+    log_rank0(logger, is_ddp, rank,
+              f"[Train-{view_name}] epochs={cfg.epochs}, dim={cfg.dim}, "
+              f"window={v_window}, neg={cfg.neg}, batch={v_batch}, "
+              f"accum={cfg.accum}, AMP={cfg.amp}, DDP={is_ddp}")
 
-    torch.backends.cuda.matmul.allow_tf32 = bool(args.tf32)
+    torch.backends.cuda.matmul.allow_tf32 = bool(cfg.tf32)
 
-    for ep in range(1, args.epochs + 1):
+    for ep in range(1, cfg.epochs + 1):
         t0 = time.time()
 
         # Create corpus iterator
@@ -253,7 +155,7 @@ def train_view(view_name: str, N: int, start_nodes: np.ndarray,
             corpus=corpus_iter,
             window=v_window,
             max_sents=v_max_sents,
-            seed=args.seed + ep + (0 if view_name == "tag" else 1000),
+            seed=cfg.seed + ep + (0 if view_name == "tag" else 1000),
             keep_prob=v_keep,
             forward_only=v_forward,
             ctx_cap=v_cap,
@@ -267,12 +169,12 @@ def train_view(view_name: str, N: int, start_nodes: np.ndarray,
 
         model.train()
         for centers_t, contexts_t, negs_t in batch_pairs_and_negs_fast(
-                pair_iter, v_batch, args.neg, ns_prob_t, ns_alias_t, device):
+                pair_iter, v_batch, cfg.neg, ns_prob_t, ns_alias_t, device):
 
             optimizer.zero_grad(set_to_none=True)
 
             B = centers_t.size(0)
-            accum = max(1, int(args.accum))
+            accum = max(1, int(cfg.accum))
             micro = (B + accum - 1) // accum
 
             # Micro-batch loop for gradient accumulation
@@ -282,9 +184,9 @@ def train_view(view_name: str, N: int, start_nodes: np.ndarray,
                 n_mb = negs_t[s:s + micro]
 
                 try:
-                    cm = torch.amp.autocast('cuda', enabled=args.amp)
+                    cm = torch.amp.autocast('cuda', enabled=cfg.amp)
                 except TypeError:
-                    cm = torch.cuda.amp.autocast(enabled=args.amp)
+                    cm = torch.cuda.amp.autocast(enabled=cfg.amp)
 
                 with cm:
                     loss = model(c_mb, x_mb, n_mb)
@@ -302,7 +204,7 @@ def train_view(view_name: str, N: int, start_nodes: np.ndarray,
             pairs_since_last += B
             step += 1
 
-            if step % args.log_every == 0 and (not is_ddp or rank == 0):
+            if step % cfg.log_every == 0 and (not is_ddp or rank == 0):
                 now = time.time()
                 dt = max(1e-9, now - last_t)
                 thr = pairs_since_last / dt
@@ -310,47 +212,50 @@ def train_view(view_name: str, N: int, start_nodes: np.ndarray,
                 if device.type == "cuda":
                     try:
                         mem = torch.cuda.memory_allocated(device=device) / (1024 ** 2)
-                    except Exception:
+                    except RuntimeError:
                         pass
-                print(f"[{view_name}] step={step:,} throughput={thr:,.0f} pairs/s "
-                      f"loss~{total_loss / max(1, total_pairs):.4f} mem~{mem:.0f}MB",
-                      flush=True)
+                logger.info(
+                    f"[{view_name}] step={step:,} throughput={thr:,.0f} pairs/s "
+                    f"loss~{total_loss / max(1, total_pairs):.4f} mem~{mem:.0f}MB")
                 last_t = now
                 pairs_since_last = 0
 
             if v_max_pairs is not None and total_pairs >= v_max_pairs:
                 if (not is_ddp) or rank == 0:
-                    print(f"[{view_name}] early stop epoch {ep}: "
-                          f"reached max_pairs={v_max_pairs:,}", flush=True)
+                    logger.info(
+                        f"[{view_name}] early stop epoch {ep}: "
+                        f"reached max_pairs={v_max_pairs:,}")
                 break
 
         dt = time.time() - t0
         if (not is_ddp) or rank == 0:
             if total_pairs == 0:
-                print(f"[Train-{view_name}] epoch {ep}: no pairs produced")
+                logger.info(f"[Train-{view_name}] epoch {ep}: no pairs produced")
             else:
-                print(f"[Train-{view_name}] epoch {ep}: pairs={total_pairs:,}, "
-                      f"avg_loss={total_loss / max(1, total_pairs):.4f}, "
-                      f"time={dt:.1f}s", flush=True)
+                logger.info(
+                    f"[Train-{view_name}] epoch {ep}: pairs={total_pairs:,}, "
+                    f"avg_loss={total_loss / max(1, total_pairs):.4f}, "
+                    f"time={dt:.1f}s")
 
             # Quick evaluation
             if len(eval_samples) > 0:
                 nn_res = quick_eval_neighbors(model, eval_samples,
-                                              topk=args.eval_topk, doc_ids=doc_ids)
-                print(f"[Eval-{view_name}] samples={list(eval_samples)} "
-                      f"top{args.eval_topk}:", flush=True)
+                                              topk=cfg.eval_topk, doc_ids=doc_ids)
+                logger.info(
+                    f"[Eval-{view_name}] samples={list(eval_samples)} "
+                    f"top{cfg.eval_topk}:")
                 for q in eval_samples:
                     if q in nn_res:
                         pretty = ", ".join([f"(idx={i},Id={did},s={s:.3f})"
                                             for (i, s, did) in nn_res[q]])
-                        print(f"  q(idx={q},Id={int(doc_ids[q])}) → {pretty}",
-                              flush=True)
+                        logger.info(
+                            f"  q(idx={q},Id={int(doc_ids[q])}) -> {pretty}")
 
             # Per-epoch checkpoint
-            if args.save_epoch_emb:
+            if cfg.save_epoch_emb:
                 E = (model.module.in_emb.weight if hasattr(model, "module")
                      else model.in_emb.weight).detach().cpu().numpy()
-                Z = E.astype(np.float16 if args.emb_dtype == "float16"
+                Z = E.astype(np.float16 if cfg.emb_dtype == "float16"
                              else np.float32, copy=True)
                 nrm = np.linalg.norm(Z, axis=1, keepdims=True)
                 mask = (nrm[:, 0] > 0)
@@ -359,7 +264,7 @@ def train_view(view_name: str, N: int, start_nodes: np.ndarray,
                 df = pd.DataFrame(Z, columns=[f"f{i}" for i in range(Z.shape[1])])
                 df.insert(0, "doc_idx", np.arange(N, dtype=np.int64))
                 df.to_parquet(part_path, engine="fastparquet", index=False)
-                print(f"[Checkpoint-{view_name}] saved {part_path.name}", flush=True)
+                logger.info(f"[Checkpoint-{view_name}] saved {part_path.name}")
 
         barrier(is_ddp)
 
@@ -374,8 +279,9 @@ def train_view(view_name: str, N: int, start_nodes: np.ndarray,
         df = pd.DataFrame(Z, columns=[f"f{i}" for i in range(Z.shape[1])])
         df.insert(0, "doc_idx", np.arange(N, dtype=np.int64))
         df.to_parquet(out_path, engine="fastparquet", index=False)
-        print(f"[Train-{view_name}] saved {out_path.name}; "
-              f"covered={int(mask.sum())}/{N} ({mask.mean():.1%})", flush=True)
+        logger.info(
+            f"[Train-{view_name}] saved {out_path.name}; "
+            f"covered={int(mask.sum())}/{N} ({mask.mean():.1%})")
 
     del model, optimizer
     gc.collect()
@@ -385,19 +291,22 @@ def train_view(view_name: str, N: int, start_nodes: np.ndarray,
 
 
 def main():
-    args = parse_args()
+    cfg = TrainConfig.from_args()
+    logger = get_logger("train_sgns")
+    logger.setLevel(cfg.log_level)
+
     is_ddp, rank, world, local, device = init_ddp("nccl")
-    log0(is_ddp, rank,
-         f"[DDP] enabled={is_ddp}, rank={rank}/{world}, device={device}")
+    log_rank0(logger, is_ddp, rank,
+              f"[DDP] enabled={is_ddp}, rank={rank}/{world}, device={device}")
 
-    torch.backends.cuda.matmul.allow_tf32 = bool(args.tf32)
+    torch.backends.cuda.matmul.allow_tf32 = bool(cfg.tf32)
 
-    TMP = Path(args.tmp_dir)
+    TMP = Path(cfg.tmp_dir)
     assert TMP.exists(), f"tmp_dir not found: {TMP}"
 
     # Parse view selection
-    views = [v.strip().lower() for v in args.views.split(",")]
-    log0(is_ddp, rank, f"[Config] Training views: {views}")
+    views = cfg.views
+    log_rank0(logger, is_ddp, rank, f"[Config] Training views: {views}")
 
     # Load data
     doc_df = pd.read_parquet(TMP / "doc_clean.parquet", engine="fastparquet")
@@ -432,20 +341,20 @@ def main():
 
     # Train requested views
     if "tag" in views:
-        log0(is_ddp, rank, "\n" + "=" * 60)
-        log0(is_ddp, rank, "Training TAG view")
-        log0(is_ddp, rank, "=" * 60)
+        log_rank0(logger, is_ddp, rank, "\n" + "=" * 60)
+        log_rank0(logger, is_ddp, rank, "Training TAG view")
+        log_rank0(logger, is_ddp, rank, "=" * 60)
         train_view("tag", N, start_tag, degD_tag, tag_corpus, device,
-                   is_ddp, rank, args, TMP / "Z_tag.parquet", doc_ids)
+                   is_ddp, rank, cfg, TMP / "Z_tag.parquet", doc_ids)
 
     if "text" in views:
-        log0(is_ddp, rank, "\n" + "=" * 60)
-        log0(is_ddp, rank, "Training TEXT view")
-        log0(is_ddp, rank, "=" * 60)
+        log_rank0(logger, is_ddp, rank, "\n" + "=" * 60)
+        log_rank0(logger, is_ddp, rank, "Training TEXT view")
+        log_rank0(logger, is_ddp, rank, "=" * 60)
         train_view("text", N, start_txt, degD_txt, text_corpus, device,
-                   is_ddp, rank, args, TMP / "Z_text.parquet", doc_ids)
+                   is_ddp, rank, cfg, TMP / "Z_text.parquet", doc_ids)
 
-    log0(is_ddp, rank, "\n[Done] Training complete.")
+    log_rank0(logger, is_ddp, rank, "\n[Done] Training complete.")
     cleanup_ddp()
 
 

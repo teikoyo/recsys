@@ -22,7 +22,6 @@ Usage:
 """
 
 import os
-import sys
 import json
 import argparse
 from pathlib import Path
@@ -31,9 +30,6 @@ import numpy as np
 import pandas as pd
 import torch
 import torch.distributed as dist
-
-# Add parent directory to path
-sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from src.ddp_utils import init_ddp, barrier, log0, cleanup_ddp
 

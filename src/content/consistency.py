@@ -51,7 +51,7 @@ def compute_jaccard_and_consistency(d_content_ids, N_meta, N_cont,
                 if ri in d_set:
                     meta_w[(ri, int(r["col"]))] = float(r["val"])
             del fused3_edges
-        except Exception:
+        except (FileNotFoundError, KeyError, ValueError):
             pass
 
     results = []

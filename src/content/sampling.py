@@ -17,6 +17,8 @@ from typing import Any, Dict, List, Optional, Tuple
 import numpy as np
 import pandas as pd
 
+from ..constants import TAU_NUMERIC, TAU_DATETIME, TEXT_AVG_CHAR_LEN, ID_UNIQUE_RATIO
+
 # ---------- Constants ----------
 
 TABULAR_EXTS = {".csv", ".tsv", ".parquet", ".xlsx", ".xls"}
@@ -29,11 +31,6 @@ BLACKLIST_PATTERNS = [
     re.compile(r"^README", re.IGNORECASE),
     re.compile(r"^LICENSE", re.IGNORECASE),
 ]
-
-# Column type detection thresholds
-TAU_NUM = 0.95   # numeric detection threshold
-TAU_DT = 0.90    # datetime detection threshold
-L_TEXT = 30      # text column avg char length threshold
 
 # ID column pattern
 _ID_PATTERN = re.compile(r"(?i)^(unnamed|index|id)$|_id$|_idx$")
@@ -86,14 +83,14 @@ def read_by_ext(path, nrows=None):
             return pd.read_excel(path, nrows=nrows)
         else:
             return None
-    except (UnicodeDecodeError, Exception) as first_err:
+    except (UnicodeDecodeError, pd.errors.ParserError, ValueError, OSError) as first_err:
         if ext in (".csv", ".tsv"):
             sep = "\t" if ext == ".tsv" else ","
             # Try latin-1 with C engine (handles NUL bytes better)
             try:
                 return pd.read_csv(path, sep=sep, nrows=nrows, encoding="latin-1",
                                    on_bad_lines="skip", engine="c")
-            except Exception:
+            except (UnicodeDecodeError, pd.errors.ParserError, ValueError, OSError):
                 pass
         return None
 
@@ -181,7 +178,7 @@ def sample_table(path, max_rows=1024, max_cols=60):
     for c in df.columns:
         if _ID_PATTERN.search(str(c)):
             unique_ratio = df[c].nunique() / max(len(df), 1)
-            if unique_ratio > 0.95:
+            if unique_ratio > ID_UNIQUE_RATIO:
                 cols_to_drop.append(c)
     if cols_to_drop:
         df = df.drop(columns=cols_to_drop)
@@ -231,7 +228,7 @@ def profile_column(series, col_name):
     # 1. Try numeric
     numeric_converted = pd.to_numeric(non_null, errors="coerce")
     numeric_ratio = numeric_converted.notna().mean()
-    if numeric_ratio >= TAU_NUM:
+    if numeric_ratio >= TAU_NUMERIC:
         vals = numeric_converted.dropna()
         stats = {
             "min": float(vals.min()),
@@ -248,10 +245,10 @@ def profile_column(series, col_name):
     try:
         dt_converted = pd.to_datetime(str_vals, errors="coerce")
         dt_ratio = dt_converted.notna().mean()
-    except Exception:
+    except (ValueError, TypeError, OverflowError):
         dt_ratio = 0.0
 
-    if dt_ratio >= TAU_DT:
+    if dt_ratio >= TAU_DATETIME:
         dt_valid = dt_converted.dropna()
         try:
             span = (dt_valid.max() - dt_valid.min()).days if len(dt_valid) > 1 else 0
@@ -275,7 +272,7 @@ def profile_column(series, col_name):
     str_lens = non_null.astype(str).str.len()
     avg_len = float(str_lens.mean())
 
-    if avg_len >= L_TEXT:
+    if avg_len >= TEXT_AVG_CHAR_LEN:
         sample_text = str(non_null.iloc[0])[:200] if len(non_null) > 0 else ""
         stats = {
             "avg_len": avg_len,

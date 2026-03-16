@@ -26,7 +26,16 @@ from ..metrics import (
     precision_at_k,
     recall_at_k,
 )
+from ..constants import (
+    W_TAG_EVAL as W_TAG,
+    W_DESC_EVAL as W_DESC,
+    W_CREATOR_EVAL as W_CRE,
+    DESC_SIM_THRESHOLD as DESC_THRESHOLD,
+)
 from .similarity import load_csr_from_manifest, load_manifest_flexible
+from ..log import get_logger
+
+logger = get_logger(__name__)
 
 
 # ---------------------------------------------------------------------------
@@ -42,16 +51,6 @@ def _load_csr_cached(prefix: str, N: int, base_dir, k: int = 50):
     if cache_key not in _csr_cache:
         _csr_cache[cache_key] = load_csr_from_manifest(prefix, N, base_dir, k=k)
     return _csr_cache[cache_key]
-
-
-# ---------------------------------------------------------------------------
-# Evaluation constants
-# ---------------------------------------------------------------------------
-
-W_TAG = 0.5
-W_DESC = 0.3
-W_CRE = 0.2
-DESC_THRESHOLD = 0.2
 
 # Default method configurations: prefix -> (dir_key, display_name, group)
 #   dir_key is resolved at runtime via a dirs dict {"tmp": ..., "content": ...}
@@ -255,7 +254,7 @@ def evaluate_method_on_subset(
     nbr_idx, nbr_w = build_topk_for_method(prefix, k_eval, base_dir, k_sim, subset=subset)
     if not nbr_idx:
         if verbose:
-            print(f"  WARNING: No neighbors loaded for {method_name}")
+            logger.warning(f"No neighbors loaded for {method_name}")
         return None, []
 
     doc_tags = standards.doc_tags
@@ -446,8 +445,8 @@ def evaluate_method_on_subset(
     )
 
     if verbose:
-        print(
-            f"  {method_name}: unified_nDCG={results['unified_ndcg']:.4f} "
+        logger.info(
+            f"{method_name}: unified_nDCG={results['unified_ndcg']:.4f} "
             f"(tag={results['tag_ndcg']:.4f}, desc={results['desc_ndcg']:.4f}, "
             f"cre={results['cre_ndcg']:.4f}) "
             f"[tag_n={tag_covered}, desc_n={desc_covered}, cre_n={cre_covered}]"
@@ -490,7 +489,7 @@ def evaluate_all_methods(
     for method_name, config in methods_config.items():
         base_dir = dirs[config["dir_key"]]
         if verbose:
-            print(f"\nEvaluating: {method_name}")
+            logger.info(f"Evaluating: {method_name}")
         try:
             res, _ = evaluate_method_on_subset(
                 config["prefix"],
@@ -505,9 +504,9 @@ def evaluate_all_methods(
             if res is not None:
                 res["group"] = config.get("group", "")
                 all_results.append(res)
-        except Exception as e:
+        except (FileNotFoundError, KeyError, ValueError) as e:
             if verbose:
-                print(f"  ERROR: {e}")
+                logger.error(f"Failed to evaluate {method_name}: {e}")
 
     return pd.DataFrame(all_results)
 

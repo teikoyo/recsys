@@ -16,6 +16,11 @@ import pandas as pd
 import torch
 from scipy import sparse
 
+from .constants import (
+    RW_ITER_SEED_MULT, RW_RANK_SEED_MULT,
+    RW_SHARD_SEED_MULT, RW_RANK_SHARD_SEED_MULT,
+    TAG_VIEW_SEED_OFFSET, TEXT_VIEW_SEED_OFFSET,
+)
 from .csr_utils import csr_rowview_torch, csr_T
 
 
@@ -126,7 +131,7 @@ class TorchWalkCorpus:
         """
         self._iters += 1
         rng = np.random.default_rng(
-            self.params['seed_base'] + 31 * self._iters + rank * 1009
+            self.params['seed_base'] + RW_ITER_SEED_MULT * self._iters + rank * RW_RANK_SEED_MULT
         )
         starts = self.starts_np.copy()
         rng.shuffle(starts)
@@ -141,7 +146,7 @@ class TorchWalkCorpus:
                 continue
 
             g = torch.Generator(device=device)
-            g.manual_seed(self.base_seed + 7919 * (self._iters + sid + rank * 101))
+            g.manual_seed(self.base_seed + RW_SHARD_SEED_MULT * (self._iters + sid + rank * RW_RANK_SHARD_SEED_MULT))
 
             # Precompute X degree factor
             x_factor = None
@@ -268,7 +273,7 @@ def build_corpus(
     # Create corpus objects
     tag_corpus = TorchWalkCorpus(
         start_tag, DX_tag, XD_tag,
-        base_seed=params['seed_base'] + 11,
+        base_seed=params['seed_base'] + TAG_VIEW_SEED_OFFSET,
         split_shards=64,
         view_name="tag",
         rw_params=params
@@ -276,7 +281,7 @@ def build_corpus(
 
     text_corpus = TorchWalkCorpus(
         start_txt, DX_txt, XD_txt,
-        base_seed=params['seed_base'] + 23,
+        base_seed=params['seed_base'] + TEXT_VIEW_SEED_OFFSET,
         split_shards=64,
         view_name="text",
         rw_params=params

@@ -29,6 +29,10 @@ from .similarity import (
     load_csr_from_manifest,
 )
 from .fusion import fuse_views
+from ..constants import CORPUS_SIZE_DEFAULT
+from ..log import get_logger
+
+logger = get_logger(__name__)
 
 
 # ---------------------------------------------------------------------------
@@ -59,7 +63,7 @@ def run_content_pipeline(
     embed_model: str = "sentence-transformers/all-MiniLM-L6-v2",
     embed_dim: int = 384,
     k_sim: int = 50,
-    n_total: int = 521735,
+    n_total: int = CORPUS_SIZE_DEFAULT,
     device: str = "auto",
     seed: int = 42,
 ) -> Dict[str, Path]:
@@ -107,7 +111,7 @@ def run_content_pipeline(
     mt_ren = main_tables.rename(columns={"DatasetId": "Id"})
     work = d_content.merge(mt_ren, on=["Id", "doc_idx"], how="inner")
     work = work[work["main_table_path"] != ""].copy()
-    print(f"[pipeline] Datasets with tables: {len(work)}")
+    logger.info(f"Datasets with tables: {len(work)}")
 
     # ------------------------------------------------------------------
     # 2. Profile and generate descriptions
@@ -127,7 +131,7 @@ def run_content_pipeline(
                 continue
 
             profiles = profile_table(df)
-        except Exception:
+        except (ValueError, OSError, pd.errors.ParserError):
             continue
         n_success += 1
 
@@ -153,7 +157,7 @@ def run_content_pipeline(
             })
 
         if (i + 1) % 200 == 0:
-            print(f"[pipeline] Profiled {i + 1}/{len(work)} datasets")
+            logger.info(f"Profiled {i + 1}/{len(work)} datasets")
 
     col_profiles_df = pd.DataFrame(all_profiles)
     col_descriptions_df = pd.DataFrame(all_descriptions)
@@ -162,7 +166,7 @@ def run_content_pipeline(
     col_descriptions_df.to_parquet(output_dir / "col_descriptions.parquet", engine="fastparquet")
     outputs["col_profiles"] = output_dir / "col_profiles.parquet"
     outputs["col_descriptions"] = output_dir / "col_descriptions.parquet"
-    print(f"[pipeline] Profiled {n_success} datasets, {len(col_profiles_df)} columns")
+    logger.info(f"Profiled {n_success} datasets, {len(col_profiles_df)} columns")
 
     # ------------------------------------------------------------------
     # 3. Encode descriptions
@@ -173,7 +177,7 @@ def run_content_pipeline(
         from sentence_transformers import SentenceTransformer
         import torch
 
-        print(f"[pipeline] Encoding {len(descriptions)} descriptions on {device}")
+        logger.info(f"Encoding {len(descriptions)} descriptions on {device}")
         model = SentenceTransformer(embed_model, device=device)
         embeddings = model.encode(
             descriptions,
@@ -186,7 +190,7 @@ def run_content_pipeline(
         if device == "cuda":
             torch.cuda.empty_cache()
     except ImportError:
-        print("[pipeline] sentence-transformers not available, using random embeddings")
+        logger.info("sentence-transformers not available, using random embeddings")
         rng = np.random.RandomState(seed)
         embeddings = rng.randn(len(descriptions), embed_dim).astype(np.float32)
         norms = np.linalg.norm(embeddings, axis=1, keepdims=True)
@@ -235,7 +239,7 @@ def run_content_pipeline(
     Z_df = Z_df.sort_values("doc_idx").reset_index(drop=True)
     Z_df.to_parquet(output_dir / "Z_tabcontent.parquet", engine="fastparquet")
     outputs["Z_tabcontent"] = output_dir / "Z_tabcontent.parquet"
-    print(f"[pipeline] Z_tabcontent: {Z_df.shape}")
+    logger.info(f"Z_tabcontent: {Z_df.shape}")
 
     # ------------------------------------------------------------------
     # 5. FAISS kNN -> COO edges
@@ -254,14 +258,14 @@ def run_content_pipeline(
         try:
             res = faiss.StandardGpuResources()
             index = faiss.index_cpu_to_gpu(res, 0, index)
-            print("[pipeline] Using FAISS GPU index")
-        except Exception:
-            print("[pipeline] Using FAISS CPU index")
+            logger.info("Using FAISS GPU index")
+        except RuntimeError:
+            logger.info("Using FAISS CPU index")
         index.add(Z)
         k_search = min(k_sim + 1, B_actual)
         scores, idxs = index.search(Z, k_search)
     except ImportError:
-        print("[pipeline] FAISS not available, using sklearn NearestNeighbors fallback")
+        logger.info("FAISS not available, using sklearn NearestNeighbors fallback")
         k_search = min(k_sim + 1, B_actual)
         try:
             from sklearn.neighbors import NearestNeighbors
@@ -272,7 +276,7 @@ def run_content_pipeline(
             distances, idxs = nn.kneighbors(Z)
             scores = 1.0 - distances  # cosine similarity
         except ImportError:
-            print("[pipeline] sklearn not available, using numpy dense fallback")
+            logger.info("sklearn not available, using numpy dense fallback")
             sim_matrix = Z @ Z.T
             idxs = np.argsort(-sim_matrix, axis=1)[:, :k_search]
             scores = np.take_along_axis(sim_matrix, idxs, axis=1)
@@ -294,7 +298,7 @@ def run_content_pipeline(
     rows_arr = np.array(rows_list, dtype=np.int64)
     cols_arr = np.array(cols_list, dtype=np.int64)
     vals_arr = np.array(vals_list, dtype=np.float32)
-    print(f"[pipeline] COO edges: {len(rows_arr)}")
+    logger.info(f"COO edges: {len(rows_arr)}")
 
     # ------------------------------------------------------------------
     # 6. Symmetrise, row-normalise, save
@@ -306,7 +310,7 @@ def run_content_pipeline(
         note=f"content view; max_rows={max_rows}, max_cols={max_cols}",
     )
     outputs["S_tabcontent_manifest"] = manifest_path
-    print(f"[pipeline] Saved S_tabcontent: {len(sym_rows)} edges")
+    logger.info(f"Saved S_tabcontent: {len(sym_rows)} edges")
 
     return outputs
 
@@ -353,5 +357,5 @@ def build_naive_fusion(
         prefix="S_naive4_symrow", k=k_sim, output_dir=output_dir,
         note="0.5*S_fused3 + 0.5*S_tabcontent; top-K + L1 norm",
     )
-    print(f"[pipeline] Naive fusion saved: {len(rows)} edges")
+    logger.info(f"Naive fusion saved: {len(rows)} edges")
     return manifest_path

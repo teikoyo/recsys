@@ -17,7 +17,6 @@ Usage:
 import argparse
 import gc
 import json
-import sys
 import time
 from collections import defaultdict
 from pathlib import Path
@@ -27,8 +26,14 @@ import pandas as pd
 from scipy import sparse
 
 ROOT = Path(__file__).resolve().parent.parent
-sys.path.insert(0, str(ROOT))
 
+from src.constants import (
+    W_TAG_EVAL as W_TAG,
+    W_DESC_EVAL as W_DESC,
+    W_CREATOR_EVAL as W_CRE,
+    DESC_SIM_THRESHOLD as DESC_THRESHOLD,
+    CORPUS_SIZE_DEFAULT as N_TOTAL,
+)
 from src.content.evaluation import load_silver_standards
 from src.content.similarity import (
     load_csr_from_manifest,
@@ -42,13 +47,6 @@ from src.metrics import (
     precision_at_k,
     recall_at_k,
 )
-
-# ---------------------------------------------------------------------------
-# Constants
-# ---------------------------------------------------------------------------
-W_TAG, W_DESC, W_CRE = 0.5, 0.3, 0.2
-DESC_THRESHOLD = 0.2
-N_TOTAL = 521735
 
 
 # ---------------------------------------------------------------------------

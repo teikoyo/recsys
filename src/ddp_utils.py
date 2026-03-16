@@ -15,6 +15,10 @@ import torch
 import torch.distributed as dist
 from typing import Tuple
 
+from .log import get_logger
+
+logger = get_logger(__name__)
+
 
 def init_ddp(backend: str = "nccl") -> Tuple[bool, int, int, int, torch.device]:
     """
@@ -84,7 +88,7 @@ def log0(is_ddp: bool, rank: int, msg: str) -> None:
         >>> log0(is_ddp, rank, "[Step 1] Training started")
     """
     if (not is_ddp) or rank == 0:
-        print(msg, flush=True)
+        logger.info(msg)
 
 
 def cleanup_ddp() -> None:

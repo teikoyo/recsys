@@ -10,7 +10,6 @@ Usage:
 """
 import argparse
 import gc
-import sys
 import time
 from pathlib import Path
 
@@ -19,8 +18,14 @@ import pandas as pd
 from scipy import sparse
 
 ROOT = Path(__file__).resolve().parent.parent
-sys.path.insert(0, str(ROOT))
 
+from src.constants import (
+    W_TAG_EVAL as W_TAG,
+    W_DESC_EVAL as W_DESC,
+    W_CREATOR_EVAL as W_CRE,
+    DESC_SIM_THRESHOLD as DESC_THRESHOLD,
+    CORPUS_SIZE_DEFAULT,
+)
 from src.content.evaluation import (
     SilverStandards,
     evaluate_method_on_subset,
@@ -77,9 +82,6 @@ def evaluate_single_method_csr(
         precision_at_k,
         recall_at_k,
     )
-
-    W_TAG, W_DESC, W_CRE = 0.5, 0.3, 0.2
-    DESC_THRESHOLD = 0.2
 
     results = {"method": method_name}
 
@@ -213,7 +215,7 @@ def main():
     p.add_argument("--seed", type=int, default=42)
     p.add_argument("--k-eval", type=int, default=20)
     p.add_argument("--k-sim", type=int, default=50)
-    p.add_argument("--n-total", type=int, default=521735)
+    p.add_argument("--n-total", type=int, default=CORPUS_SIZE_DEFAULT)
     p.add_argument("--dilution-sizes", type=int, nargs="*", default=None)
     args = p.parse_args()
 

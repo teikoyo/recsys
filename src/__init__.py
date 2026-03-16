@@ -1,6 +1,3 @@
-#!/usr/bin/env python3
-# -*- coding: utf-8 -*-
-
 """
 src - Core modules for WS-SGNS recommendation system
 
@@ -8,6 +5,9 @@ This package provides reusable components for training Skip-gram with
 Negative Sampling (SGNS) models using random walks on bipartite graphs.
 
 Modules:
+    - constants: Centralized constants and magic numbers
+    - config: Dataclass configuration (TrainConfig, ContentConfig, EvalConfig)
+    - log: Structured logging utilities
     - ddp_utils: Distributed Data Parallel utilities
     - csr_utils: CSR sparse matrix I/O operations
     - sampling_utils: Negative sampling and alias method
@@ -31,8 +31,14 @@ from .metrics import (
     dcg_at_k, ndcg_at_k, average_precision_at_k, mrr_at_k,
     precision_at_k, recall_at_k
 )
+from .config import TrainConfig, ContentConfig, EvalConfig
+from .log import get_logger, log_rank0
 
 __all__ = [
+    # Configuration
+    'TrainConfig', 'ContentConfig', 'EvalConfig',
+    # Logging
+    'get_logger', 'log_rank0',
     # DDP utilities
     'init_ddp', 'barrier', 'log0',
     # CSR utilities

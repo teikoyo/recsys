@@ -31,6 +31,9 @@ import numpy as np
 import pandas as pd
 
 from .sampling import select_main_table
+from ..log import get_logger
+
+logger = get_logger(__name__)
 
 # Raise CSV field size limit for DatasetVersions.csv
 csv.field_size_limit(sys.maxsize)
@@ -140,8 +143,8 @@ def filter_candidates(
         mask_views = pd.Series(True, index=meta.index)
 
     combined = mask_tag & mask_size & mask_views
-    print(f"[acquisition] Filter: tag={combined.sum() if tags else 'any'}, "
-          f"size={mask_size.sum()}, views={mask_views.sum()}, combined={combined.sum()}")
+    logger.info(f"Filter: tag={combined.sum() if tags else 'any'}, "
+                f"size={mask_size.sum()}, views={mask_views.sum()}, combined={combined.sum()}")
     return meta[combined].copy()
 
 
@@ -168,7 +171,7 @@ def check_kaggle_api() -> bool:
             capture_output=True, text=True, timeout=30,
         )
         return result.returncode == 0
-    except Exception:
+    except (FileNotFoundError, subprocess.TimeoutExpired, OSError):
         return False
 
 
@@ -215,8 +218,8 @@ def search_kaggle_slug(
                 results = df.to_dict("records")
             else:
                 results = []
-    except Exception as e:
-        print(f"  [acquisition] API error for '{slug}': {e}")
+    except (subprocess.TimeoutExpired, OSError, ValueError) as e:
+        logger.warning(f"API error for '{slug}': {e}")
         results = []
 
     with open(cache_file, "w") as f:
@@ -298,7 +301,7 @@ def download_dataset(
     for attempt in range(max_retries + 1):
         if attempt > 0:
             wait = 2 ** attempt
-            print(f"  [acquisition] Retry {attempt}/{max_retries} for {ref} after {wait}s")
+            logger.info(f"Retry {attempt}/{max_retries} for {ref} after {wait}s")
             time.sleep(wait)
         try:
             cmd = [
@@ -312,11 +315,11 @@ def download_dataset(
             )
             if result.returncode == 0:
                 return True
-            print(f"  [acquisition] Download failed for {ref}: {result.stderr[:200]}")
+            logger.warning(f"Download failed for {ref}: {result.stderr[:200]}")
         except subprocess.TimeoutExpired:
-            print(f"  [acquisition] Download timeout for {ref}")
-        except Exception as e:
-            print(f"  [acquisition] Download error for {ref}: {e}")
+            logger.warning(f"Download timeout for {ref}")
+        except OSError as e:
+            logger.warning(f"Download error for {ref}: {e}")
 
     return False
 
@@ -361,17 +364,17 @@ def backfill_non_tabular(
     non_tab_mask = main_tables["main_table_path"] == ""
     n_non_tabular = non_tab_mask.sum()
     if n_non_tabular == 0:
-        print("[acquisition] All datasets are tabular, no backfill needed.")
+        logger.info("All datasets are tabular, no backfill needed.")
         return d_content, main_tables, slug_to_ref
 
-    print(f"[acquisition] Non-tabular datasets: {n_non_tabular}")
+    logger.info(f"Non-tabular datasets: {n_non_tabular}")
     non_tab_ids = set(main_tables.loc[non_tab_mask, "DatasetId"].astype(int).values)
 
     # Remove non-tabular entries
     d_content = d_content[~d_content["Id"].astype(int).isin(non_tab_ids)].reset_index(drop=True)
     main_tables = main_tables[~main_tables["DatasetId"].astype(int).isin(non_tab_ids)].reset_index(drop=True)
     need = target - len(d_content)
-    print(f"[acquisition] After removal: {len(d_content)}, need backfill: {need}")
+    logger.info(f"After removal: {len(d_content)}, need backfill: {need}")
 
     if need <= 0:
         return d_content, main_tables, slug_to_ref
@@ -393,7 +396,7 @@ def backfill_non_tabular(
         on="Id", how="left",
     )
     tier1_pool = tier1_pool.sort_values("TotalDownloads", ascending=False).reset_index(drop=True)
-    print(f"[acquisition] Tier-1 pool: {len(tier1_pool)}")
+    logger.info(f"Tier-1 pool: {len(tier1_pool)}")
 
     n_t1_ok = 0
     for _, brow in tier1_pool.iterrows():
@@ -436,14 +439,14 @@ def backfill_non_tabular(
         need -= 1
         n_t1_ok += 1
 
-    print(f"[acquisition] Tier-1 backfill: {n_t1_ok}")
+    logger.info(f"Tier-1 backfill: {n_t1_ok}")
 
     # --- Tier-2: Unsearched candidates ---
     n_t2_ok = 0
     tier2_new_rows = []
 
     if need > 0 and kaggle_available:
-        print(f"[acquisition] Tier-1 insufficient, starting Tier-2 (need {need})...")
+        logger.info(f"Tier-1 insufficient, starting Tier-2 (need {need})...")
         already_ids = dc_ids | {r["Id"] for r in backfill_dc} | non_tab_ids
         already_slugs = set(slug_to_ref["Slug"].values)
         tier2_pool = candidates[
@@ -497,7 +500,7 @@ def backfill_non_tabular(
             need -= 1
             n_t2_ok += 1
 
-        print(f"[acquisition] Tier-2 backfill: {n_t2_ok}")
+        logger.info(f"Tier-2 backfill: {n_t2_ok}")
 
     # Merge backfill results
     if backfill_dc:
@@ -522,10 +525,10 @@ def backfill_non_tabular(
             shutil.rmtree(ndir)
             n_cleaned += 1
     if n_cleaned:
-        print(f"[acquisition] Cleaned {n_cleaned} non-tabular directories")
+        logger.info(f"Cleaned {n_cleaned} non-tabular directories")
 
-    print(f"[acquisition] Backfill complete: d_content={len(d_content)}, "
-          f"main_tables={len(main_tables)}")
+    logger.info(f"Backfill complete: d_content={len(d_content)}, "
+                f"main_tables={len(main_tables)}")
     return d_content, main_tables, slug_to_ref
 
 

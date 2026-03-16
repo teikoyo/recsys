@@ -17,17 +17,15 @@ Usage:
 """
 
 import argparse
-import sys
 import time
 from pathlib import Path
 
 import numpy as np
 import pandas as pd
 
-# Ensure project root is importable
 ROOT = Path(__file__).resolve().parent.parent
-sys.path.insert(0, str(ROOT))
 
+from src.constants import CORPUS_SIZE_DEFAULT
 from src.content.evaluation import (
     METHODS_CONFIG,
     evaluate_all_methods,
@@ -44,7 +42,7 @@ def parse_args():
     p.add_argument("--seed", type=int, default=42)
     p.add_argument("--k-eval", type=int, default=20)
     p.add_argument("--k-sim", type=int, default=50)
-    p.add_argument("--n-total", type=int, default=521735)
+    p.add_argument("--n-total", type=int, default=CORPUS_SIZE_DEFAULT)
     p.add_argument(
         "--output-dir", type=str,
         default=str(ROOT / "tmp" / "content" / "scale_experiments"),
