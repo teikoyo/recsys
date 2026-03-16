@@ -64,15 +64,10 @@ Thumbs.db
 data/
 !data/README.md
 
-# Root-level statistics (intermediate outputs)
-tag_cooccurrence.csv
-tag_statistics.csv
-
 # ========================================
 # Temporary & Output directories
 # ========================================
 tmp/
-random_walk_analysis_outputs/
 
 # ========================================
 # Model & Training artifacts
@@ -97,6 +92,11 @@ random_walk_analysis_outputs/
 # ========================================
 *.log
 logs/
+
+# ========================================
+# Testing
+# ========================================
+.pytest_cache/
 
 # ========================================
 # Claude / AI assistant files
